@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#040812">
+  <title>Cyber Pulse · Spotify</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --cyan: #50eaff;
+      --pink: #ff45c8;
+      --green: #82ffd0;
+      --panel: rgba(5, 13, 25, .88);
+      --line: rgba(90, 209, 255, .38);
+    }
+    * { box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: #030711; }
+    body { color: #eafaff; font: 14px/1.45 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+    body::after {
+      content: ""; position: fixed; inset: 0; pointer-events: none; opacity: .24;
+      background: linear-gradient(rgba(120,220,255,.08) 1px, transparent 1px), linear-gradient(90deg, rgba(120,220,255,.07) 1px, transparent 1px);
+      background-size: 28px 28px;
+      mask-image: radial-gradient(ellipse at center, #000 15%, transparent 85%);
+    }
+    .topbar {
+      position: fixed; z-index: 2; top: max(12px, env(safe-area-inset-top)); left: 14px; right: 14px;
+      display: flex; align-items: center; justify-content: space-between; gap: 10px;
+      padding: 11px 14px; border: 1px solid var(--line); border-radius: 15px;
+      background: rgba(5, 13, 25, .66); backdrop-filter: blur(12px);
+      box-shadow: 0 0 24px rgba(32, 183, 255, .12);
+    }
+    .brand { display: flex; align-items: center; gap: 9px; font-size: 11px; font-weight: 800; letter-spacing: .2em; text-transform: uppercase; }
+    .live { width: 8px; height: 8px; border-radius: 50%; background: var(--green); box-shadow: 0 0 12px var(--green); animation: pulse 1.3s ease-in-out infinite alternate; }
+    @keyframes pulse { to { opacity: .45; transform: scale(.72); } }
+    .tag { color: #9dc8d9; font-size: 9px; letter-spacing: .15em; text-transform: uppercase; }
+    .player-panel {
+      position: fixed; z-index: 2; left: 14px; right: 14px; bottom: max(14px, env(safe-area-inset-bottom));
+      padding: 12px; border: 1px solid var(--line); border-radius: 18px;
+      background: var(--panel); backdrop-filter: blur(14px); box-shadow: 0 0 30px rgba(30, 160, 225, .16);
+    }
+    .player-heading { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; margin: 0 2px 9px; }
+    .player-heading strong { font-size: 11px; letter-spacing: .15em; text-transform: uppercase; }
+    .player-heading span { color: #a5cbd9; font-size: 10px; }
+    iframe { display: block; width: 100%; height: 152px; border: 0; border-radius: 12px; }
+    .hint { margin: 8px 2px 0; color: #91aab7; font-size: 10px; text-align: center; }
+    @media (min-width: 700px) {
+      .topbar { left: 24px; right: 24px; top: 20px; padding: 14px 18px; }
+      .player-panel { left: auto; right: 24px; bottom: 24px; width: min(390px, calc(100% - 48px)); padding: 15px; }
+      iframe { height: 152px; }
+    }
+    @media (max-height: 570px) {
+      .player-panel { padding: 8px; }
+      .player-heading { margin-bottom: 5px; }
+      iframe { height: 130px; }
+      .hint { margin-top: 4px; }
+    }
+  </style>
+</head>
+<body>
+  <canvas id="visualizer" aria-label="Dekorative Cyber-Animation"></canvas>
+  <header class="topbar">
+    <div class="brand"><span class="live"></span><span>Cyber Pulse</span></div>
+    <span class="tag">Spotify stream · visual mode</span>
+  </header>
+  <main class="player-panel">
+    <div class="player-heading">
+      <strong>Deine Playlist</strong>
+      <span>Animation läuft live</span>
+    </div>
+    <iframe
+      title="Spotify-Playlist"
+      src="https://open.spotify.com/embed/playlist/7heLfX0IzSij73gic7nAy6?utm_source=generator&theme=0"
+      allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
+      loading="eager">
+    </iframe>
+    <p class="hint">Die Animation ist dekorativ und nicht beatgenau mit Spotify synchronisiert.</p>
+  </main>
+  <script>
+    (() => {
+      const canvas = document.getElementById('visualizer');
+      const ctx = canvas.getContext('2d');
+      const particles = [];
+      let width = 0, height = 0, scale = 1;
+      const particleCount = () => Math.min(150, Math.max(70, Math.floor(width * height / 9500)));
+      function resize() {
+        scale = Math.min(window.devicePixelRatio || 1, 2);
+        width = window.innerWidth;
+        height = window.innerHeight;
+        canvas.width = Math.round(width * scale);
+        canvas.height = Math.round(height * scale);
+        ctx.setTransform(scale, 0, 0, scale, 0, 0);
+        particles.length = 0;
+        for (let i = 0; i < particleCount(); i++) {
+          particles.push({
+            angle: Math.random() * Math.PI * 2,
+            radius: 35 + Math.random() * Math.max(width, height) * .55,
+            speed: .12 + Math.random() * .7,
+            size: .6 + Math.random() * 1.8,
+            phase: Math.random() * Math.PI * 2
+          });
+        }
+      }
+      function render(timeMs) {
+        const time = timeMs * .001;
+        const cx = width * .5;
+        const cy = height * .47;
+        const minSide = Math.min(width, height);
+        ctx.fillStyle = 'rgba(2, 6, 15, .22)';
+        ctx.fillRect(0, 0, width, height);
+
+        const glow = ctx.createRadialGradient(cx, cy, 4, cx, cy, minSide * .62);
+        glow.addColorStop(0, 'rgba(24, 104, 164, .18)');
+        glow.addColorStop(.5, 'rgba(19, 37, 92, .08)');
+        glow.addColorStop(1, 'rgba(2, 6, 15, 0)');
+        ctx.fillStyle = glow;
+        ctx.fillRect(0, 0, width, height);
+
+        for (const p of particles) {
+          p.angle += p.speed * .0018;
+          const drift = 1 + Math.sin(time * 1.7 + p.phase) * .035;
+          const px = cx + Math.cos(p.angle) * p.radius * drift;
+          const py = cy + Math.sin(p.angle) * p.radius * drift * .67;
+          const hue = (185 + p.phase * 26 + time * 18) % 360;
+          ctx.fillStyle = `hsla(${hue}, 100%, 72%, ${.25 + (Math.sin(time * 2 + p.phase) + 1) * .24})`;
+          ctx.fillRect(px, py, p.size, p.size);
+        }
+
+        for (let ring = 0; ring < 5; ring++) {
+          const pulse = Math.sin(time * (1.25 + ring * .12) - ring * .65);
+          const radius = minSide * (.105 + ring * .052) + pulse * (4 + ring * 2);
+          ctx.beginPath();
+          ctx.ellipse(cx, cy, radius, radius * .72, time * .04 * (ring % 2 ? 1 : -1), 0, Math.PI * 2);
+          ctx.lineWidth = ring === 0 ? 2.4 : 1;
+          ctx.strokeStyle = `hsla(${(185 + ring * 37 + time * 20) % 360}, 100%, 66%, ${.48 - ring * .055})`;
+          ctx.shadowColor = ctx.strokeStyle;
+          ctx.shadowBlur = ring === 0 ? 18 : 7;
+          ctx.stroke();
+        }
+        ctx.shadowBlur = 0;
+
+        const bars = Math.min(96, Math.max(42, Math.floor(width / 9)));
+        const barWidth = width / bars;
+        for (let i = 0; i < bars; i++) {
+          const position = i / bars;
+          const wave = .12 + .22 * (1 + Math.sin(time * 2.2 - position * 16)) / 2
+            + .13 * (1 + Math.sin(time * 3.1 + position * 29)) / 2;
+          const barHeight = Math.max(3, wave * Math.min(height * .32, 180));
+          const hue = (190 + position * 155 + time * 15) % 360;
+          ctx.fillStyle = `hsla(${hue}, 100%, 65%, .72)`;
+          ctx.fillRect(i * barWidth, height - barHeight, Math.max(2, barWidth - 2), barHeight);
+        }
+
+        const coreRadius = 7 + (1 + Math.sin(time * 2.4)) * 5;
+        const core = ctx.createRadialGradient(cx, cy, 0, cx, cy, coreRadius * 4);
+        core.addColorStop(0, 'rgba(255,255,255,.96)');
+        core.addColorStop(.15, 'rgba(83,245,255,.9)');
+        core.addColorStop(1, 'rgba(255,52,202,0)');
+        ctx.fillStyle = core;
+        ctx.beginPath();
+        ctx.arc(cx, cy, coreRadius * 4, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(cx, cy, coreRadius, 0, Math.PI * 2);
+        ctx.fillStyle = '#eaffff';
+        ctx.shadowColor = '#56eaff';
+        ctx.shadowBlur = 24;
+        ctx.fill();
+        ctx.shadowBlur = 0;
+
+        if (Math.sin(time * .75) > .985) {
+          const y = Math.random() * height;
+          ctx.fillStyle = 'rgba(80, 234, 255, .34)';
+          ctx.fillRect(0, y, width * (.18 + Math.random() * .65), 1 + Math.random() * 4);
+        }
+        requestAnimationFrame(render);
+      }
+      window.addEventListener('resize', resize, { passive: true });
+      resize();
+      requestAnimationFrame(render);
+    })();
+  </script>
+</body>
+</html>
