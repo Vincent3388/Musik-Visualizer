@@ -33,15 +33,19 @@
       position: fixed; top: max(82px, env(safe-area-inset-top) + 68px); right: 12px; left: 12px; z-index: 4;
       padding: 10px 12px; border-radius: 12px; border: 1px solid rgba(126,249,198,.65);
       background: rgba(7,14,18,.8); color: var(--green); font-size: 10px; letter-spacing: .12em; text-transform: uppercase;
-      box-shadow: 0 0 18px rgba(33,145,112,.2); text-align: center;
+      box-shadow: 0 0 18px rgba(33,145,112,.2); text-align: center; transition: opacity .35s, transform .35s;
     }
     .status.error { border-color: rgba(255,138,193,.8); color: #ff9cc7; }
+    .status.compact { left: auto; width: auto; max-width: calc(100% - 24px); padding: 6px 9px; font-size: 9px; letter-spacing: .08em; }
+    .status.quiet { opacity: 0; transform: translateY(-5px); pointer-events: none; }
     .controls {
       position: fixed; left: 12px; right: 12px; bottom: max(12px, env(safe-area-inset-bottom)); z-index: 4;
       display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 12px;
       border-radius: 18px; border: 1px solid rgba(92,165,208,.6); background: rgba(10,17,27,.82);
       box-shadow: 0 0 24px rgba(35,118,190,.22);
     }
+    .controls.collapsed { display: none; }
+    .settings-toggle { width: auto; min-height: 36px; padding: 7px 10px; font-size: 10px; white-space: nowrap; }
     button, label, select { font: inherit; }
     button, label {
       display: flex; align-items: center; justify-content: center; min-height: 44px; width: 100%; border-radius: 12px;
@@ -63,13 +67,6 @@
       background: rgba(28,16,12,.55); color: #ffe8b8; font-size: 11px; line-height: 1.5; display: none;
     }
     .info-box.visible { display: block; }
-    .site-note {
-      position: fixed; left: 12px; right: 12px; top: 82px; z-index: 4; padding: 12px; border-radius: 14px;
-      background: rgba(15, 26, 35, 0.82); border: 1px solid rgba(98, 194, 255, 0.6); color: #dff7ff;
-      font-size: 10px; line-height: 1.5; letter-spacing: 0.07em; text-transform: uppercase;
-      box-shadow: 0 0 20px rgba(30,120,190,.2);
-    }
-    .site-note strong { color: #7ef9c6; }
   </style>
 </head>
 <body>
@@ -77,12 +74,9 @@
 
   <div class="topbar">
     <span class="brand"><span>Cyber Pulse</span><span class="dot"></span></span>
-    <span class="brand" style="font-size:10px;opacity:.8;letter-spacing:.12em;">Direct mic</span>
+    <button class="settings-toggle" id="settingsToggle" type="button" aria-controls="controls" aria-expanded="true">⚙ Einstellungen</button>
   </div>
 
-  <div class="site-note">
-    <strong>Website-Modus:</strong> Diese Datei muss im Browser als Webseite laufen, nicht als gespeicherte Datei. Öffne sie über <strong>localhost</strong> oder <strong>HTTPS</strong>.
-  </div>
   <div id="notice" class="info-box"></div>
   <div class="status" id="status">Mikrofon aktivieren</div>
 
@@ -121,8 +115,11 @@
     const file = document.getElementById('audioFile');
     const sensitivity = document.getElementById('sensitivity');
     const effectMode = document.getElementById('effectMode');
+    const controls = document.getElementById('controls');
+    const settingsToggle = document.getElementById('settingsToggle');
 
     let ac, an, src, stream, micGain, raf, playing = false;
+    let statusTimer;
     let particles = [], burstParticles = [], barLevels = [], barPhases = [];
     let previousEnergy = 0, previousSpectrum = [], averageEnergy = 0, energyHistory = [];
     let quietFor = 0, lastDropAt = 0, lastRhythmAt = 0, lastFrameAt = 0, beatFlash = 0, rhythmPulse = 0, previousBass = 0, shockwaves = [];
@@ -135,6 +132,21 @@
     function hideNotice() {
       notice.classList.remove('visible');
     }
+    function setStatus(message, { compact = false, error = false, hideAfter = 0 } = {}) {
+      clearTimeout(statusTimer);
+      status.textContent = message;
+      status.classList.toggle('compact', compact);
+      status.classList.toggle('error', error);
+      status.classList.remove('quiet');
+      if (hideAfter) statusTimer = setTimeout(() => status.classList.add('quiet'), hideAfter);
+    }
+    function toggleSettings(forceCollapsed) {
+      const collapsed = forceCollapsed ?? !controls.classList.contains('collapsed');
+      controls.classList.toggle('collapsed', collapsed);
+      settingsToggle.setAttribute('aria-expanded', String(!collapsed));
+      settingsToggle.textContent = collapsed ? '⚙ Einstellungen' : '✕ Schließen';
+    }
+    settingsToggle.addEventListener('click', () => toggleSettings());
     function fit(){ const d = devicePixelRatio || 1; c.width = innerWidth * d; c.height = innerHeight * d; x.setTransform(d,0,0,d,0,0); }
     addEventListener('resize', fit); fit();
     for (let i = 0; i < 240; i++) particles.push({ a: Math.random() * Math.PI * 2, r: Math.random() * 500, s: 0.3 + Math.random() * 2, spin: (Math.random() - 0.5) * 0.015 });
@@ -162,7 +174,7 @@
       if (ac && ac.close) { try { ac.close(); } catch (e) {} }
       ac = null; an = null;
       previousEnergy = 0; previousSpectrum = []; averageEnergy = 0; energyHistory = []; quietFor = 0; lastDropAt = 0; lastRhythmAt = 0; lastFrameAt = 0; previousBass = 0; beatFlash = 0; rhythmPulse = 0; burstParticles = []; shockwaves = [];
-      status.textContent = 'Gestoppt'; status.classList.remove('error');
+      setStatus('Gestoppt');
       x.fillStyle = '#02040c'; x.fillRect(0,0,innerWidth,innerHeight);
     }
 
@@ -186,7 +198,7 @@
 
     function triggerTest() {
       triggerBurst(innerWidth / 2, innerHeight / 2, 1.4);
-      status.textContent = 'Effekt testen';
+      setStatus('Effekt testen', { compact: true, hideAfter: 1800 });
       if (!playing) requestAnimationFrame(drawDemo);
     }
     function drawDemo() {
@@ -211,13 +223,13 @@
       if (!fileHandle) return;
       stopPlayback();
       ensureContext();
-      status.textContent = 'Lade ' + fileHandle.name + '…';
+      setStatus('Lade ' + fileHandle.name + '…', { compact: true });
       const reader = new FileReader();
       reader.onload = ev => {
         ac.decodeAudioData(ev.target.result).then(buf => {
           src = ac.createBufferSource(); src.buffer = buf; src.connect(an); an.connect(ac.destination); src.onended = stopPlayback; src.start();
-          playing = true; status.textContent = 'Spielt: ' + fileHandle.name; status.classList.remove('error'); draw();
-        }).catch(err => { status.textContent = 'Fehler: ' + err.message; status.classList.add('error'); });
+          playing = true; setStatus('Spielt: ' + fileHandle.name, { compact: true }); draw();
+        }).catch(err => { setStatus('Fehler: ' + err.message, { error: true }); });
       };
       reader.readAsArrayBuffer(fileHandle);
     };
@@ -226,16 +238,16 @@
       try {
         const isSafeContext = window.isSecureContext || location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1';
         if (!isSafeContext || location.protocol === 'file:') {
-          status.textContent = 'Bitte über localhost oder https öffnen'; status.classList.add('error');
+          setStatus('Bitte über localhost oder https öffnen', { error: true });
           showNotice('Ja, das ist das eigentliche Problem: iPhone/iPad erlauben Mikrofonzugriff in Safari/Chrome nur in einem sicheren Browser-Kontext. Öffne die Seite als echte Website über localhost oder HTTPS und tippe dann erneut auf Mikrofon.');
           return;
         }
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-          status.textContent = 'Mikrofon nicht unterstützt'; status.classList.add('error');
+          setStatus('Mikrofon nicht unterstützt', { error: true });
           showNotice('Dieser Browser unterstützt kein Mikrofon-API. Nutze stattdessen eine Audio-Datei.');
           return;
         }
-        status.textContent = 'Mikrofon anfragen…'; status.classList.remove('error'); hideNotice();
+        setStatus('Mikrofon anfragen…', { compact: true }); hideNotice();
         await ensureContext();
         const permission = await navigator.mediaDevices.getUserMedia({
           audio: {
@@ -250,9 +262,12 @@
         src = ac.createMediaStreamSource(stream);
         micGain = ac.createGain(); micGain.gain.value = micGainValue;
         src.connect(micGain); micGain.connect(an); an.connect(ac.destination);
-        playing = true; status.textContent = 'Mikrofon aktiv'; draw();
+        playing = true;
+        toggleSettings(true);
+        setStatus('Mikrofon aktiv', { compact: true, hideAfter: 2200 });
+        draw();
       } catch (err) {
-        status.textContent = 'Zugriff verweigert'; status.classList.add('error');
+        setStatus('Zugriff verweigert', { error: true });
         showNotice('Bitte erneut auf Mikrofon tippen. Wenn Safari/Chrome danach trotzdem keine Abfrage zeigt, liegt es am sicherheitsgebundenen iPhone-/iPad-Kontext: Dann bitte nur über localhost oder HTTPS öffnen.');
       }
     }
