@@ -120,7 +120,7 @@
     const controls = document.getElementById('controls');
     const settingsToggle = document.getElementById('settingsToggle');
 
-    let ac, an, src, stream, micGain, raf, playing = false;
+    let ac, an, src, stream, micGain, audioElement, audioObjectUrl, raf, playing = false;
     let statusTimer, playlistFiles = [], playlistIndex = -1, loadToken = 0;
     let particles = [], burstParticles = [], barLevels = [], barPhases = [];
     let previousEnergy = 0, previousSpectrum = [], averageEnergy = 0, energyHistory = [];
@@ -172,6 +172,15 @@
       loadToken++;
       if (raf) cancelAnimationFrame(raf);
       if (src) { src.onended = null; try { src.stop(); } catch (e) {} if (src.disconnect) src.disconnect(); src = null; }
+      if (audioElement) {
+        audioElement.onended = null;
+        audioElement.onerror = null;
+        audioElement.pause();
+        audioElement.removeAttribute('src');
+        audioElement.load();
+        audioElement = null;
+      }
+      if (audioObjectUrl) { URL.revokeObjectURL(audioObjectUrl); audioObjectUrl = null; }
       if (micGain) { micGain.disconnect(); micGain = null; }
       if (stream) { stream.getTracks().forEach(track => track.stop()); stream = null; }
       if (ac && ac.close) { try { ac.close(); } catch (e) {} }
@@ -231,54 +240,85 @@
         src.disconnect();
         src = null;
       }
+      if (audioElement) {
+        audioElement.onended = null;
+        audioElement.onerror = null;
+        audioElement.pause();
+        audioElement.removeAttribute('src');
+        audioElement.load();
+        audioElement = null;
+      }
+      if (audioObjectUrl) {
+        URL.revokeObjectURL(audioObjectUrl);
+        audioObjectUrl = null;
+      }
       playlistIndex = index;
       const track = playlistFiles[index];
       setStatus(`Lade ${index + 1}/${playlistFiles.length}: ${track.name}`, { compact: true });
       try {
         await ensureContext();
-        const buffer = await ac.decodeAudioData(await track.arrayBuffer());
         if (token !== loadToken) return;
-        src = ac.createBufferSource();
-        src.buffer = buffer;
+        audioElement = new Audio();
+        audioElement.preload = 'auto';
+        audioElement.playsInline = true;
+        audioObjectUrl = URL.createObjectURL(track);
+        audioElement.src = audioObjectUrl;
+        src = ac.createMediaElementSource(audioElement);
         src.connect(an);
         an.connect(ac.destination);
-        src.onended = () => {
+        audioElement.onended = () => {
           if (!playing || token !== loadToken) return;
           if (playlistIndex + 1 < playlistFiles.length) {
             playTrack(playlistIndex + 1);
           } else {
             playing = false;
-            src = null;
+            if (src) { src.disconnect(); src = null; }
+            if (audioElement) {
+              audioElement.onended = null;
+              audioElement.onerror = null;
+              audioElement.removeAttribute('src');
+              audioElement.load();
+            }
+            if (audioObjectUrl) { URL.revokeObjectURL(audioObjectUrl); audioObjectUrl = null; }
+            audioElement = null;
             setStatus('Playlist beendet', { compact: true, hideAfter: 3000 });
           }
         };
-        src.start();
+        audioElement.onerror = () => {
+          if (token !== loadToken) return;
+          playing = false;
+          if (src) { src.disconnect(); src = null; }
+          if (audioObjectUrl) { URL.revokeObjectURL(audioObjectUrl); audioObjectUrl = null; }
+          setStatus(`Datei nicht abspielbar: ${track.name}`, { error: true });
+          showNotice('Das Gerät oder der Browser kann diese Audiodatei nicht abspielen. Prüfe, ob es eine MP3/M4A/WAV-Datei ist, oder wähle eine andere Datei.');
+        };
+        await audioElement.play();
+        if (token !== loadToken) {
+          audioElement.pause();
+          return;
+        }
         playing = true;
         toggleSettings(true);
         setStatus(`${index + 1}/${playlistFiles.length} · ${track.name}`, { compact: true, hideAfter: 3000 });
         draw();
       } catch (err) {
-        if (token === loadToken) setStatus('Fehler: ' + err.message, { error: true });
+        if (token === loadToken) {
+          const detail = err && err.name === 'NotAllowedError'
+            ? 'Tippe auf Play oder wähle die Datei erneut aus, um die Wiedergabe zu starten.'
+            : `Datei konnte nicht geöffnet werden: ${err.message || track.name}`;
+          setStatus('Wiedergabe nicht gestartet', { error: true });
+          showNotice(detail);
+        }
       }
     }
 
     file.addEventListener('change', event => {
       const selectedFiles = Array.from(event.target.files || []);
-      const supportedExtensions = /\.(mp3|m4a|aac|wav|ogg|opus|weba)$/i;
-      playlistFiles = selectedFiles.filter(track =>
-        track.type.startsWith('audio/') || supportedExtensions.test(track.name)
-      );
-      const rejectedCount = selectedFiles.length - playlistFiles.length;
-      if (rejectedCount) {
-        showNotice(`${rejectedCount} Datei(en) wurden übersprungen. Bitte MP3-, M4A-, AAC-, WAV-, OGG- oder OPUS-Audiodateien auswählen.`);
-      } else {
-        hideNotice();
-      }
+      playlistFiles = selectedFiles;
+      hideNotice();
       if (playlistFiles.length) {
         stopPlayback();
         playTrack(0);
-      } else if (selectedFiles.length) {
-        setStatus('Keine unterstützten Audiodateien', { error: true });
       }
       file.value = '';
     });
