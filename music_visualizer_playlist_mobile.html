@@ -82,7 +82,7 @@
 
   <section class="controls" id="controls">
     <label for="audioFiles">🎵 Playlist laden</label>
-    <input id="audioFiles" type="file" accept="audio/*" multiple />
+    <input id="audioFiles" type="file" multiple />
     <button id="previousTrack" type="button" onclick="playTrack(playlistIndex - 1);">⏮ Zurück</button>
     <button id="nextTrack" type="button" onclick="playTrack(playlistIndex + 1);">Weiter ⏭</button>
     <button id="micBtn" type="button" onclick="startMicrophone();">🎙 Mikrofon</button>
@@ -263,11 +263,24 @@
     }
 
     file.addEventListener('change', event => {
-      playlistFiles = Array.from(event.target.files || []);
+      const selectedFiles = Array.from(event.target.files || []);
+      const supportedExtensions = /\.(mp3|m4a|aac|wav|ogg|opus|weba)$/i;
+      playlistFiles = selectedFiles.filter(track =>
+        track.type.startsWith('audio/') || supportedExtensions.test(track.name)
+      );
+      const rejectedCount = selectedFiles.length - playlistFiles.length;
+      if (rejectedCount) {
+        showNotice(`${rejectedCount} Datei(en) wurden übersprungen. Bitte MP3-, M4A-, AAC-, WAV-, OGG- oder OPUS-Audiodateien auswählen.`);
+      } else {
+        hideNotice();
+      }
       if (playlistFiles.length) {
         stopPlayback();
         playTrack(0);
+      } else if (selectedFiles.length) {
+        setStatus('Keine unterstützten Audiodateien', { error: true });
       }
+      file.value = '';
     });
 
     async function startMicrophone() {
