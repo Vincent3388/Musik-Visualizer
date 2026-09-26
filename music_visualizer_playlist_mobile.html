@@ -44,6 +44,8 @@
       border-radius: 18px; border: 1px solid rgba(92,165,208,.6); background: rgba(10,17,27,.82);
       box-shadow: 0 0 24px rgba(35,118,190,.22);
     }
+    .transport { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr; gap: 8px; }
+    .transport button { padding: 9px 10px; font-size: 10px; letter-spacing: .06em; }
     .controls.collapsed { display: none; }
     .settings-toggle { width: auto; min-height: 36px; padding: 7px 10px; font-size: 10px; white-space: nowrap; }
     button, label, select { font: inherit; }
@@ -83,8 +85,9 @@
   <section class="controls" id="controls">
     <label for="audioFiles">🎵 Playlist laden</label>
     <input id="audioFiles" type="file" multiple />
-    <button id="previousTrack" type="button" onclick="playTrack(playlistIndex - 1);">⏮ Zurück</button>
-    <button id="nextTrack" type="button" onclick="playTrack(playlistIndex + 1);">Weiter ⏭</button>
+    <div class="transport" aria-label="Wiedergabesteuerung">
+      <button id="pausePlayButton" type="button" aria-label="Wiedergabe pausieren">⏸ Pause</button>
+    </div>
     <button id="micBtn" type="button" onclick="startMicrophone();">🎙 Mikrofon</button>
     <button id="testEffect" type="button" onclick="triggerTest();">✨ Test</button>
     <div class="select-wrap">
@@ -119,6 +122,7 @@
     const effectMode = document.getElementById('effectMode');
     const controls = document.getElementById('controls');
     const settingsToggle = document.getElementById('settingsToggle');
+    const pausePlayButton = document.getElementById('pausePlayButton');
 
     let ac, an, src, stream, micGain, audioElement, audioObjectUrl, raf, playing = false;
     let statusTimer, playlistFiles = [], playlistIndex = -1, loadToken = 0;
@@ -149,6 +153,7 @@
       settingsToggle.textContent = collapsed ? '⚙ Einstellungen' : '✕ Schließen';
     }
     settingsToggle.addEventListener('click', () => toggleSettings());
+    pausePlayButton.addEventListener('click', togglePauseResume);
     function fit(){ const d = devicePixelRatio || 1; c.width = innerWidth * d; c.height = innerHeight * d; x.setTransform(d,0,0,d,0,0); }
     addEventListener('resize', fit); fit();
     for (let i = 0; i < 240; i++) particles.push({ a: Math.random() * Math.PI * 2, r: Math.random() * 500, s: 0.3 + Math.random() * 2, spin: (Math.random() - 0.5) * 0.015 });
@@ -186,8 +191,47 @@
       if (ac && ac.close) { try { ac.close(); } catch (e) {} }
       ac = null; an = null;
       previousEnergy = 0; previousSpectrum = []; averageEnergy = 0; energyHistory = []; quietFor = 0; lastDropAt = 0; lastRhythmAt = 0; lastFrameAt = 0; previousBass = 0; beatFlash = 0; rhythmPulse = 0; burstParticles = []; shockwaves = [];
+      pausePlayButton.textContent = '▶ Fortsetzen';
+      pausePlayButton.setAttribute('aria-label', 'Wiedergabe fortsetzen');
       setStatus('Gestoppt');
       x.fillStyle = '#02040c'; x.fillRect(0,0,innerWidth,innerHeight);
+    }
+
+    async function togglePauseResume() {
+      if (stream) {
+        showNotice('Die Pausentaste steuert die Datei-Playlist, nicht das Mikrofon.');
+        return;
+      }
+      if (audioElement && playing) {
+        audioElement.pause();
+        playing = false;
+        if (raf) cancelAnimationFrame(raf);
+        pausePlayButton.textContent = '▶ Fortsetzen';
+        pausePlayButton.setAttribute('aria-label', 'Wiedergabe fortsetzen');
+        setStatus('Pausiert', { compact: true });
+        return;
+      }
+      if (audioElement && audioElement.paused) {
+        try {
+          await ensureContext();
+          await audioElement.play();
+          playing = true;
+          pausePlayButton.textContent = '⏸ Pause';
+          pausePlayButton.setAttribute('aria-label', 'Wiedergabe pausieren');
+          hideNotice();
+          setStatus(`${playlistIndex + 1}/${playlistFiles.length} · ${playlistFiles[playlistIndex].name}`, { compact: true, hideAfter: 3000 });
+          draw();
+        } catch (err) {
+          setStatus('Wiedergabe nicht fortgesetzt', { error: true });
+          showNotice('Tippe erneut auf „Fortsetzen“. Der Browser hat die Audiowiedergabe noch nicht freigegeben.');
+        }
+        return;
+      }
+      if (playlistIndex >= 0 && playlistIndex < playlistFiles.length) {
+        playTrack(playlistIndex);
+      } else {
+        showNotice('Lade zuerst eine Playlist mit Audiodateien.');
+      }
     }
 
     function updateSensitivity(){ micGainValue = Number(sensitivity.value); if (micGain) micGain.gain.value = micGainValue; }
@@ -272,6 +316,8 @@
             playTrack(playlistIndex + 1);
           } else {
             playing = false;
+            pausePlayButton.textContent = '▶ Erneut abspielen';
+            pausePlayButton.setAttribute('aria-label', 'Titel erneut abspielen');
             if (src) { src.disconnect(); src = null; }
             if (audioElement) {
               audioElement.onended = null;
@@ -287,6 +333,8 @@
         audioElement.onerror = () => {
           if (token !== loadToken) return;
           playing = false;
+          pausePlayButton.textContent = '▶ Erneut versuchen';
+          pausePlayButton.setAttribute('aria-label', 'Wiedergabe erneut versuchen');
           if (src) { src.disconnect(); src = null; }
           if (audioObjectUrl) { URL.revokeObjectURL(audioObjectUrl); audioObjectUrl = null; }
           setStatus(`Datei nicht abspielbar: ${track.name}`, { error: true });
@@ -299,6 +347,8 @@
         }
         playing = true;
         toggleSettings(true);
+        pausePlayButton.textContent = '⏸ Pause';
+        pausePlayButton.setAttribute('aria-label', 'Wiedergabe pausieren');
         setStatus(`${index + 1}/${playlistFiles.length} · ${track.name}`, { compact: true, hideAfter: 3000 });
         draw();
       } catch (err) {
@@ -315,6 +365,7 @@
     file.addEventListener('change', event => {
       const selectedFiles = Array.from(event.target.files || []);
       playlistFiles = selectedFiles;
+      playlistIndex = -1;
       hideNotice();
       if (playlistFiles.length) {
         stopPlayback();
